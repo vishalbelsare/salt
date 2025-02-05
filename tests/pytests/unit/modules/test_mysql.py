@@ -6,10 +6,10 @@
     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 """
 
-
 import logging
 
 import pytest
+
 import salt.modules.mysql as mysql
 from tests.support.mock import MagicMock, call, mock_open, patch
 
@@ -733,8 +733,8 @@ def test_get_slave_status_bad_server():
             assert rslt == []
 
 
-@pytest.mark.skipif(
-    True, reason="MySQL module claims this function is not ready for production"
+@pytest.mark.skip(
+    reason="MySQL module claims this function is not ready for production"
 )
 def test_free_slave():
     pass
@@ -860,7 +860,7 @@ def _test_call(function, expected_sql, *args, **kwargs):
                     .execute("{}".format(expected_sql["sql"]), expected_sql["sql_args"])
                 )
             else:
-                calls = call().cursor().execute("{}".format(expected_sql))
+                calls = call().cursor().execute(f"{expected_sql}")
             connect_mock.assert_has_calls((calls,), True)
 
 

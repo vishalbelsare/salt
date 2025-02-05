@@ -32,7 +32,7 @@ example):
 #. Announce new RC to salt-users and salt-announce google groups.
 #. Triage incoming issues based on the new RC release.
 #. Fix RC issues once they are categorized as a release blocker.
-#. Depending on the issues found during the RC process make a decesion
+#. Depending on the issues found during the RC process make a decision
    on whether to release based off the RC or go through another RC process
 #. If a RC is categorized as stable, build all required packages.
 #. Test all release packages.
@@ -63,7 +63,6 @@ for a bugfix release.
 
 #. Ensure all required bug fixes are merged.
 #. Create release branch with the version of the release. (ex. 3000.1)
-#. Create jenkins jobs that test the new release branch.
 #. Run through a manual test run based off of the head of the branch.
 #. Generate the new man pages for the release.
 #. Create internal tag for testing.(ex v3000.1)

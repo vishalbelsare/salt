@@ -1,7 +1,9 @@
 """
 Tests for win_file execution module
 """
+
 import pytest
+
 import salt.modules.win_file as win_file
 import salt.utils.win_dacl as win_dacl
 from salt.exceptions import CommandExecutionError
@@ -20,9 +22,9 @@ def configure_loader_modules():
             "__utils__": {
                 "dacl.check_perms": win_dacl.check_perms,
                 "dacl.set_perms": win_dacl.set_perms,
-            }
+            },
+            "__opts__": {"test": False},
         },
-        win_dacl: {"__opts__": {"test": False}},
     }
 
 
@@ -42,7 +44,7 @@ def test_check_perms_set_owner_test_true(test_file):
         "name": str(test_file),
         "result": None,
     }
-    with patch.dict(win_dacl.__opts__, {"test": True}):
+    with patch.dict(win_file.__opts__, {"test": True}):
         result = win_file.check_perms(
             path=str(test_file), owner="Backup Operators", inheritance=None
         )
@@ -75,7 +77,7 @@ def test_check_perms_deny_test_true(test_file):
         "name": str(test_file),
         "result": None,
     }
-    with patch.dict(win_dacl.__opts__, {"test": True}):
+    with patch.dict(win_file.__opts__, {"test": True}):
         result = win_file.check_perms(
             path=str(test_file),
             deny_perms={"Users": {"perms": "read_execute"}},
@@ -112,7 +114,7 @@ def test_check_perms_grant_test_true(test_file):
         "name": str(test_file),
         "result": None,
     }
-    with patch.dict(win_dacl.__opts__, {"test": True}):
+    with patch.dict(win_file.__opts__, {"test": True}):
         result = win_file.check_perms(
             path=str(test_file),
             grant_perms={"Users": {"perms": "read_execute"}},
@@ -149,7 +151,7 @@ def test_check_perms_inheritance_false_test_true(test_file):
         "name": str(test_file),
         "result": None,
     }
-    with patch.dict(win_dacl.__opts__, {"test": True}):
+    with patch.dict(win_file.__opts__, {"test": True}):
         result = win_file.check_perms(path=str(test_file), inheritance=False)
     assert result == expected
 
@@ -213,7 +215,7 @@ def test_check_perms_reset_test_true(test_file):
         "name": str(test_file),
         "result": None,
     }
-    with patch.dict(win_dacl.__opts__, {"test": True}):
+    with patch.dict(win_file.__opts__, {"test": True}):
         result = win_file.check_perms(
             path=str(test_file),
             grant_perms={
