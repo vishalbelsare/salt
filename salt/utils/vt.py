@@ -14,7 +14,7 @@
     get us into.
 
     .. __: http://code.activestate.com/recipes/440554/
-    .. __: https://github.com/python-mirror/python/blob/3.3/Lib/pty.py
+    .. __: https://github.com/python/cpython/blob/3.3/Lib/pty.py
     .. __: https://github.com/pexpect/pexpect
 
 """
@@ -38,17 +38,18 @@ mswindows = sys.platform == "win32"
 
 try:
     # pylint: disable=F0401,W0611
-    from win32file import ReadFile, WriteFile
-    from win32pipe import PeekNamedPipe
     import msvcrt
+
     import win32api
     import win32con
     import win32process
+    from win32file import ReadFile, WriteFile
+    from win32pipe import PeekNamedPipe
 
     # pylint: enable=F0401,W0611
 except ImportError:
-    import pty
     import fcntl
+    import pty
     import struct
     import termios
 
@@ -72,6 +73,7 @@ def setwinsize(child, rows=80, cols=80):
 
     Thank you for the shortcut PEXPECT
     """
+    # pylint: disable=used-before-assignment
     TIOCSWINSZ = getattr(termios, "TIOCSWINSZ", -2146929561)
     if TIOCSWINSZ == 2148037735:
         # Same bits, but with sign.
@@ -117,6 +119,7 @@ class Terminal:
         log_stdout_level="debug",
         log_stderr=None,
         log_stderr_level="debug",
+        log_sanitize=None,
         # sys.stdXYZ streaming options
         stream_stdout=None,
         stream_stderr=None,
@@ -213,7 +216,7 @@ class Terminal:
             log.warning(
                 "Failed to spawn the VT: %s", err, exc_info_on_loglevel=logging.DEBUG
             )
-            raise TerminalException("Failed to spawn the VT. Error: {}".format(err))
+            raise TerminalException(f"Failed to spawn the VT. Error: {err}")
 
         log.debug(
             "Child Forked! PID: %s  STDOUT_FD: %s  STDERR_FD: %s",
@@ -221,7 +224,16 @@ class Terminal:
             self.child_fd,
             self.child_fde,
         )
+        if log_sanitize:
+            if not isinstance(log_sanitize, str):
+                raise RuntimeError("'log_sanitize' needs to be a str type")
+            self.log_sanitize = log_sanitize
+        else:
+            self.log_sanitize = None
+
         terminal_command = " ".join(self.args)
+        if self.log_sanitize:
+            terminal_command = terminal_command.replace(self.log_sanitize, ("*" * 6))
         if (
             'decode("base64")' in terminal_command
             or "base64.b64decode(" in terminal_command
@@ -235,7 +247,7 @@ class Terminal:
         self.stdin_logger_level = LOG_LEVELS.get(log_stdin_level, log_stdin_level)
         if log_stdin is True:
             self.stdin_logger = logging.getLogger(
-                "{}.{}.PID-{}.STDIN".format(__name__, self.__class__.__name__, self.pid)
+                f"{__name__}.{self.__class__.__name__}.PID-{self.pid}.STDIN"
             )
         elif log_stdin is not None:
             if not isinstance(log_stdin, logging.Logger):
@@ -283,7 +295,7 @@ class Terminal:
         """
         Send the provided data to the terminal appending a line feed.
         """
-        return self.send("{}{}".format(data, linesep))
+        return self.send(f"{data}{linesep}")
 
     def recv(self, maxsize=None):
         """
@@ -362,7 +374,7 @@ class Terminal:
             elif sig == signal.CTRL_BREAK_EVENT:
                 os.kill(self.pid, signal.CTRL_BREAK_EVENT)
             else:
-                raise ValueError("Unsupported signal: {}".format(sig))
+                raise ValueError(f"Unsupported signal: {sig}")
             # pylint: enable=E1101
 
         def terminate(self, force=False):
@@ -385,7 +397,7 @@ class Terminal:
         def _spawn(self):
             if not isinstance(self.args, str) and self.shell is True:
                 self.args = " ".join(self.args)
-            parent, child = pty.openpty()
+            parent, child = pty.openpty()  # pylint: disable=used-before-assignment
             err_parent, err_child = os.pipe()
             child_name = os.ttyname(child)
             proc = subprocess.Popen(  # pylint: disable=subprocess-popen-preexec-fn
@@ -431,9 +443,7 @@ class Terminal:
                 tty_fd = os.open("/dev/tty", os.O_RDWR | os.O_NOCTTY)
                 if tty_fd >= 0:
                     os.close(tty_fd)
-                    raise TerminalException(
-                        "Could not open child pty, {}".format(child_name)
-                    )
+                    raise TerminalException(f"Could not open child pty, {child_name}")
             # which exception, shouldn't we catch explicitly .. ?
             except Exception:  # pylint: disable=broad-except
                 # Good! We are disconnected from a controlling tty.
@@ -441,9 +451,7 @@ class Terminal:
             tty_fd = os.open(child_name, os.O_RDWR)
             setwinsize(tty_fd, rows, cols)
             if tty_fd < 0:
-                raise TerminalException(
-                    "Could not open child pty, {}".format(child_name)
-                )
+                raise TerminalException(f"Could not open child pty, {child_name}")
             else:
                 os.close(tty_fd)
             if os.name != "posix":
@@ -452,8 +460,6 @@ class Terminal:
                     raise TerminalException("Could not open controlling tty, /dev/tty")
                 else:
                     os.close(tty_fd)
-
-            salt.utils.crypt.reinit_crypto()
 
             if preexec_fn is not None:
                 preexec_fn()
@@ -579,6 +585,10 @@ class Terminal:
 
                         if self.stderr_logger:
                             stripped = stderr.rstrip()
+                            if self.log_sanitize:
+                                stripped = stripped.replace(
+                                    self.log_sanitize, ("*" * 6)
+                                )
                             if stripped.startswith(os.linesep):
                                 stripped = stripped[len(os.linesep) :]
                             if stripped:
@@ -612,6 +622,10 @@ class Terminal:
 
                         if self.stdout_logger:
                             stripped = stdout.rstrip()
+                            if self.log_sanitize:
+                                stripped = stripped.replace(
+                                    self.log_sanitize, ("*" * 6)
+                                )
                             if stripped.startswith(os.linesep):
                                 stripped = stripped[len(os.linesep) :]
                             if stripped:

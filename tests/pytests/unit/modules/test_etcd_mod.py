@@ -9,8 +9,8 @@
     :codeauthor: Jayesh Kariya <jayeshk@saltstack.com>
 """
 
-
 import pytest
+
 import salt.modules.etcd_mod as etcd_mod
 import salt.utils.etcd_util as etcd_util
 from tests.support.mock import MagicMock, create_autospec, patch
@@ -23,7 +23,7 @@ def configure_loader_modules():
 
 @pytest.fixture
 def instance():
-    return create_autospec(etcd_util.EtcdClient)
+    return create_autospec(etcd_util.EtcdBase)
 
 
 @pytest.fixture

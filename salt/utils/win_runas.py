@@ -18,16 +18,18 @@ except ImportError:
     HAS_PSUTIL = False
 
 try:
+    import msvcrt
+
+    import pywintypes
     import win32api
     import win32con
-    import win32process
-    import win32security
-    import win32pipe
     import win32event
+    import win32pipe
+    import win32process
     import win32profile
-    import msvcrt
+    import win32security
+
     import salt.platform.win
-    import pywintypes
 
     HAS_WIN32 = True
 except ImportError:
@@ -50,6 +52,9 @@ def __virtual__():
 
 
 def split_username(username):
+    """
+    Splits out the username from the domain name and returns both.
+    """
     domain = "."
     user_name = username
     if "@" in username:
@@ -79,7 +84,8 @@ def create_env(user_token, inherit, timeout=1):
             break
     if env is not None:
         return env
-    raise exc
+    if exc is not None:
+        raise exc
 
 
 def runas(cmdLine, username, password=None, cwd=None):
@@ -231,7 +237,7 @@ def runas(cmdLine, username, password=None, cwd=None):
         fd_out = msvcrt.open_osfhandle(stdout_read.handle, os.O_RDONLY | os.O_TEXT)
         with os.fdopen(fd_out, "r") as f_out:
             stdout = f_out.read()
-            ret["stdout"] = stdout
+            ret["stdout"] = stdout.strip()
 
         # Read standard error
         fd_err = msvcrt.open_osfhandle(stderr_read.handle, os.O_RDONLY | os.O_TEXT)

@@ -7,13 +7,11 @@ Provides access to randomness generators.
 """
 
 import base64
-import hashlib
 import random
 
+import salt.utils.data
 import salt.utils.pycrypto
 from salt.exceptions import SaltInvocationError
-
-ALGORITHMS_ATTR_NAME = "algorithms_guaranteed"
 
 # Define the module's virtual name
 __virtualname__ = "random"
@@ -42,24 +40,7 @@ def hash(value, algorithm="sha512"):
 
         salt '*' random.hash 'I am a string' md5
     """
-    if isinstance(value, str):
-        # Under Python 3 we must work with bytes
-        value = value.encode(__salt_system_encoding__)
-
-    if hasattr(hashlib, ALGORITHMS_ATTR_NAME) and algorithm in getattr(
-        hashlib, ALGORITHMS_ATTR_NAME
-    ):
-        hasher = hashlib.new(algorithm)
-        hasher.update(value)
-        out = hasher.hexdigest()
-    elif hasattr(hashlib, algorithm):
-        hasher = hashlib.new(algorithm)
-        hasher.update(value)
-        out = hasher.hexdigest()
-    else:
-        raise SaltInvocationError("You must specify a valid algorithm.")
-
-    return out
+    return salt.utils.data.hash(value, algorithm=algorithm)
 
 
 def str_encode(value, encoder="base64"):
@@ -108,7 +89,7 @@ def get_str(
 ):
     """
     .. versionadded:: 2014.7.0
-    .. versionchanged:: 3004.0
+    .. versionchanged:: 3004
 
          Changed the default character set used to include symbols and implemented arguments to control the used character set.
 
@@ -118,14 +99,14 @@ def get_str(
         Any valid number of bytes.
 
     chars : None
-        .. versionadded:: 3004.0
+        .. versionadded:: 3004
 
         String with any character that should be used to generate random string.
 
         This argument supersedes all other character controlling arguments.
 
     lowercase : True
-        .. versionadded:: 3004.0
+        .. versionadded:: 3004
 
         Use lowercase letters in generated random string.
         (see :py:data:`string.ascii_lowercase`)
@@ -133,7 +114,7 @@ def get_str(
         This argument is superseded by chars.
 
     uppercase : True
-        .. versionadded:: 3004.0
+        .. versionadded:: 3004
 
         Use uppercase letters in generated random string.
         (see :py:data:`string.ascii_uppercase`)
@@ -141,7 +122,7 @@ def get_str(
         This argument is superseded by chars.
 
     digits : True
-        .. versionadded:: 3004.0
+        .. versionadded:: 3004
 
         Use digits in generated random string.
         (see :py:data:`string.digits`)
@@ -149,7 +130,7 @@ def get_str(
         This argument is superseded by chars.
 
     printable : False
-        .. versionadded:: 3004.0
+        .. versionadded:: 3004
 
         Use printable characters in generated random string and includes lowercase, uppercase,
         digits, punctuation and whitespace.
@@ -162,7 +143,7 @@ def get_str(
         This argument is superseded by chars.
 
     punctuation : True
-        .. versionadded:: 3004.0
+        .. versionadded:: 3004
 
         Use punctuation characters in generated random string.
         (see :py:data:`string.punctuation`)
@@ -170,7 +151,7 @@ def get_str(
         This argument is superseded by chars.
 
     whitespace : False
-        .. versionadded:: 3004.0
+        .. versionadded:: 3004
 
         Use whitespace characters in generated random string.
         (see :py:data:`string.whitespace`)
@@ -277,3 +258,50 @@ def seed(range=10, hash=None):
 
     random.seed(hash)
     return random.randrange(range)
+
+
+def sample(value, size, seed=None):
+    """
+    Return a given sample size from a list. By default, the random number
+    generator uses the current system time unless given a seed value.
+
+    .. versionadded:: 3005
+
+    value
+        A list to e used as input.
+
+    size
+        The sample size to return.
+
+    seed
+        Any value which will be hashed as a seed for random.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' random.sample '["one", "two"]' 1 seed="something"
+    """
+    return salt.utils.data.sample(value, size, seed=seed)
+
+
+def shuffle(value, seed=None):
+    """
+    Return a shuffled copy of an input list. By default, the random number
+    generator uses the current system time unless given a seed value.
+
+    .. versionadded:: 3005
+
+    value
+        A list to be used as input.
+
+    seed
+        Any value which will be hashed as a seed for random.
+
+    CLI Example:
+
+    .. code-block:: bash
+
+        salt '*' random.shuffle '["one", "two"]' seed="something"
+    """
+    return salt.utils.data.shuffle(value, seed=seed)
