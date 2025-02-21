@@ -2,28 +2,60 @@
     tests.pytests.conftest
     ~~~~~~~~~~~~~~~~~~~~~~
 """
+
+import asyncio
 import functools
 import inspect
 import logging
 import os
 import pathlib
 import shutil
+import ssl
 import stat
 import sys
 import tempfile
+import types
 
 import attr
 import pytest
-import salt.ext.tornado.ioloop
+import tornado.ioloop
+from pytestshellutils.utils import ports
+from saltfactories.utils import random_string
+
 import salt.utils.files
 import salt.utils.platform
 from salt.serializers import yaml
-from saltfactories.utils import random_string
-from saltfactories.utils.ports import get_unused_localhost_port
-from tests.support.helpers import get_virtualenv_binary_path
+from tests.conftest import FIPS_TESTRUN
+from tests.support.helpers import Webserver, get_virtualenv_binary_path
+from tests.support.pytest.helpers import TestAccount
 from tests.support.runtests import RUNTIME_VARS
 
 log = logging.getLogger(__name__)
+
+
+@pytest.fixture(scope="session")
+def salt_auth_account_1_factory():
+    return TestAccount(username="saltdev-auth-1")
+
+
+@pytest.fixture(scope="session")
+def salt_auth_account_2_factory():
+    return TestAccount(username="saltdev-auth-2", group_name="saltops")
+
+
+@pytest.fixture(scope="session")
+def salt_netapi_account_factory():
+    return TestAccount(username="saltdev-netapi")
+
+
+@pytest.fixture(scope="session")
+def salt_eauth_account_factory():
+    return TestAccount(username="saltdev-eauth")
+
+
+@pytest.fixture(scope="session")
+def salt_auto_account_factory():
+    return TestAccount(username="saltdev-auto")
 
 
 @pytest.fixture(scope="session")
@@ -38,12 +70,7 @@ def salt_sub_minion_id():
 
 @pytest.fixture(scope="session")
 def sdb_etcd_port():
-    return get_unused_localhost_port()
-
-
-@pytest.fixture(scope="session")
-def vault_port():
-    return get_unused_localhost_port()
+    return ports.get_unused_localhost_port()
 
 
 @attr.s(slots=True, frozen=True)
@@ -96,9 +123,13 @@ def salt_master_factory(
     prod_env_pillar_tree_root_dir,
     ext_pillar_file_tree_root_dir,
     sdb_etcd_port,
-    vault_port,
     reactor_event,
     master_id,
+    salt_auth_account_1_factory,
+    salt_auth_account_2_factory,
+    salt_netapi_account_factory,
+    salt_eauth_account_factory,
+    salt_auto_account_factory,
 ):
     root_dir = salt_factories.get_root_dir_for_daemon(master_id)
     conf_dir = root_dir / "conf"
@@ -129,7 +160,7 @@ def salt_master_factory(
         "redundant_minions": "N@min or N@mins",
         "nodegroup_loop_a": "N@nodegroup_loop_b",
         "nodegroup_loop_b": "N@nodegroup_loop_a",
-        "missing_minion": "L@{},ghostminion".format(salt_minion_id),
+        "missing_minion": f"L@{salt_minion_id},ghostminion",
         "list_group": "N@multiline_nodegroup",
         "one_list_group": "N@one_minion_list",
         "list_group2": "N@list_nodegroup",
@@ -140,11 +171,6 @@ def salt_master_factory(
         "etcd.host": "127.0.0.1",
         "etcd.port": sdb_etcd_port,
     }
-    config_defaults["vault"] = {
-        "url": "http://127.0.0.1:{}".format(vault_port),
-        "auth": {"method": "token", "token": "testsecret", "uses": 0},
-        "policies": ["testpolicy"],
-    }
 
     # Config settings to test `event_return`
     config_defaults["returner_dirs"] = []
@@ -152,7 +178,13 @@ def salt_master_factory(
         os.path.join(RUNTIME_VARS.FILES, "returners")
     )
     config_defaults["event_return"] = "runtests_noop"
-    config_overrides = {"pytest-master": {"log": {"level": "DEBUG"}}}
+    config_overrides = {
+        "pytest-master": {"log": {"level": "DEBUG"}},
+        "fips_mode": FIPS_TESTRUN,
+        "publish_signing_algorithm": (
+            "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1"
+        ),
+    }
     ext_pillar = []
     if salt.utils.platform.is_windows():
         ext_pillar.append(
@@ -172,6 +204,28 @@ def salt_master_factory(
         }
     )
     config_overrides["pillar_opts"] = True
+    config_overrides["external_auth"] = {
+        "pam": {
+            salt_auth_account_1_factory.username: ["test.*"],
+            f"{salt_auth_account_2_factory.group_name}%": [
+                "@wheel",
+                "@runner",
+                "test.*",
+            ],
+            salt_netapi_account_factory.username: ["@wheel", "@runner", "test.*"],
+            salt_eauth_account_factory.username: ["@wheel", "@runner", "test.*"],
+        },
+        "auto": {
+            salt_netapi_account_factory.username: [
+                "@wheel",
+                "@runner",
+                "test.*",
+                "grains.*",
+            ],
+            salt_auto_account_factory.username: ["@wheel", "@runner", "test.*"],
+            "*": ["@wheel", "@runner", "test.*"],
+        },
+    }
 
     # We need to copy the extension modules into the new master root_dir or
     # it will be prefixed by it
@@ -233,13 +287,13 @@ def salt_master_factory(
         master_id,
         defaults=config_defaults,
         overrides=config_overrides,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
     return factory
 
 
 @pytest.fixture(scope="session")
-def salt_minion_factory(salt_master_factory, salt_minion_id, sdb_etcd_port, vault_port):
+def salt_minion_factory(salt_master_factory, salt_minion_id, sdb_etcd_port):
     with salt.utils.files.fopen(os.path.join(RUNTIME_VARS.CONF_DIR, "minion")) as rfh:
         config_defaults = yaml.deserialize(rfh.read())
     config_defaults["hosts.file"] = os.path.join(RUNTIME_VARS.TMP, "hosts")
@@ -250,15 +304,13 @@ def salt_minion_factory(salt_master_factory, salt_minion_id, sdb_etcd_port, vaul
         "etcd.host": "127.0.0.1",
         "etcd.port": sdb_etcd_port,
     }
-    config_defaults["vault"] = {
-        "url": "http://127.0.0.1:{}".format(vault_port),
-        "auth": {"method": "token", "token": "testsecret", "uses": 0},
-        "policies": ["testpolicy"],
-    }
 
     config_overrides = {
         "file_roots": salt_master_factory.config["file_roots"].copy(),
         "pillar_roots": salt_master_factory.config["pillar_roots"].copy(),
+        "fips_mode": FIPS_TESTRUN,
+        "encryption_algorithm": "OAEP-SHA224" if FIPS_TESTRUN else "OAEP-SHA1",
+        "signing_algorithm": "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1",
     }
 
     virtualenv_binary = get_virtualenv_binary_path()
@@ -268,7 +320,7 @@ def salt_minion_factory(salt_master_factory, salt_minion_id, sdb_etcd_port, vaul
         salt_minion_id,
         defaults=config_defaults,
         overrides=config_overrides,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
     factory.after_terminate(
         pytest.helpers.remove_stale_minion_key, salt_master_factory, factory.id
@@ -289,6 +341,9 @@ def salt_sub_minion_factory(salt_master_factory, salt_sub_minion_id):
     config_overrides = {
         "file_roots": salt_master_factory.config["file_roots"].copy(),
         "pillar_roots": salt_master_factory.config["pillar_roots"].copy(),
+        "fips_mode": FIPS_TESTRUN,
+        "encryption_algorithm": "OAEP-SHA224" if FIPS_TESTRUN else "OAEP-SHA1",
+        "signing_algorithm": "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1",
     }
 
     virtualenv_binary = get_virtualenv_binary_path()
@@ -298,7 +353,7 @@ def salt_sub_minion_factory(salt_master_factory, salt_sub_minion_id):
         salt_sub_minion_id,
         defaults=config_defaults,
         overrides=config_overrides,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
     factory.after_terminate(
         pytest.helpers.remove_stale_minion_key, salt_master_factory, factory.id
@@ -313,12 +368,15 @@ def salt_proxy_factory(salt_master_factory):
     config_overrides = {
         "file_roots": salt_master_factory.config["file_roots"].copy(),
         "pillar_roots": salt_master_factory.config["pillar_roots"].copy(),
+        "fips_mode": FIPS_TESTRUN,
+        "encryption_algorithm": "OAEP-SHA224" if FIPS_TESTRUN else "OAEP-SHA1",
+        "signing_algorithm": "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1",
     }
 
     factory = salt_master_factory.salt_proxy_minion_daemon(
         proxy_minion_id,
         overrides=config_overrides,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
         start_timeout=240,
     )
     factory.before_start(pytest.helpers.remove_stale_proxy_minion_cache_file, factory)
@@ -351,10 +409,16 @@ def salt_delta_proxy_factory(salt_factories, salt_master_factory):
         "metaproxy": "deltaproxy",
         "master": "127.0.0.1",
     }
+    config_overrides = {
+        "fips_mode": FIPS_TESTRUN,
+        "encryption_algorithm": "OAEP-SHA224" if FIPS_TESTRUN else "OAEP-SHA1",
+        "signing_algorithm": "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1",
+    }
     factory = salt_master_factory.salt_proxy_minion_daemon(
         proxy_minion_id,
         defaults=config_defaults,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        overrides=config_overrides,
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
         start_timeout=240,
     )
 
@@ -380,10 +444,17 @@ def temp_salt_master(
         "open_mode": True,
         "transport": request.config.getoption("--transport"),
     }
+    config_overrides = {
+        "fips_mode": FIPS_TESTRUN,
+        "publish_signing_algorithm": (
+            "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1"
+        ),
+    }
     factory = salt_factories.salt_master_daemon(
         random_string("temp-master-"),
         defaults=config_defaults,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        overrides=config_overrides,
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
     return factory
 
@@ -394,10 +465,16 @@ def temp_salt_minion(temp_salt_master):
         "open_mode": True,
         "transport": temp_salt_master.config["transport"],
     }
+    config_overrides = {
+        "fips_mode": FIPS_TESTRUN,
+        "encryption_algorithm": "OAEP-SHA224" if FIPS_TESTRUN else "OAEP-SHA1",
+        "signing_algorithm": "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1",
+    }
     factory = temp_salt_master.salt_minion_daemon(
         random_string("temp-minion-"),
         defaults=config_defaults,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        overrides=config_overrides,
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
     factory.after_terminate(
         pytest.helpers.remove_stale_minion_key, temp_salt_master, factory.id
@@ -449,7 +526,7 @@ def tmp_path_world_rw(request):
     Temporary path which is world read/write for tests that run under a different account
     """
     tempdir_path = pathlib.Path(basetemp=tempfile.gettempdir()).resolve()
-    path = tempdir_path / "world-rw-{}".format(id(request.node))
+    path = tempdir_path / f"world-rw-{id(request.node)}"
     path.mkdir(exist_ok=True)
     path.chmod(0o777)
     try:
@@ -463,6 +540,41 @@ def bridge_pytest_and_runtests():
     """
     We're basically overriding the same fixture defined in tests/conftest.py
     """
+
+
+@pytest.fixture(scope="session")
+def this_txt_file(integration_files_dir):
+    contents = "test"
+    with pytest.helpers.temp_file("this.txt", contents, integration_files_dir) as path:
+        sha256sum = salt.utils.hashutils.get_hash(str(path), form="sha256")
+        with pytest.helpers.temp_file(
+            "this.txt.sha256", sha256sum, integration_files_dir
+        ):
+            yield types.SimpleNamespace(name="this.txt", path=path, sha256=sha256sum)
+
+
+@pytest.fixture(scope="module")
+def ssl_webserver(integration_files_dir, this_txt_file):
+    """
+    spins up an https webserver.
+    """
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(
+        str(integration_files_dir / "https" / "cert.pem"),
+        str(integration_files_dir / "https" / "key.pem"),
+    )
+
+    with Webserver(root=str(integration_files_dir), ssl_opts=context) as webserver:
+        yield webserver
+
+
+@pytest.fixture(scope="module")
+def webserver(integration_files_dir, this_txt_file):
+    """
+    spins up an http webserver.
+    """
+    with Webserver(root=str(integration_files_dir)) as webserver:
+        yield webserver
 
 
 # ----- Async Test Fixtures ----------------------------------------------------------------------------------------->
@@ -484,7 +596,7 @@ def get_test_timeout(pyfuncitem):
     return default_timeout
 
 
-@pytest.mark.tryfirst
+@pytest.hookimpl(tryfirst=True)
 def pytest_pycollect_makeitem(collector, name, obj):
     if collector.funcnamefilter(name) and inspect.iscoroutinefunction(obj):
         return list(collector._genfunctions(name, obj))
@@ -509,7 +621,7 @@ class CoroTestFunction:
         return ret
 
 
-@pytest.mark.tryfirst
+@pytest.hookimpl(tryfirst=True)
 def pytest_pyfunc_call(pyfuncitem):
     if not inspect.iscoroutinefunction(pyfuncitem.obj):
         return
@@ -520,12 +632,15 @@ def pytest_pyfunc_call(pyfuncitem):
     try:
         loop = funcargs["io_loop"]
     except KeyError:
-        loop = salt.ext.tornado.ioloop.IOLoop.current()
+        loop = tornado.ioloop.IOLoop.current()
 
     __tracebackhide__ = True
 
-    loop.run_sync(
-        CoroTestFunction(pyfuncitem.obj, testargs), timeout=get_test_timeout(pyfuncitem)
+    loop.asyncio_loop.run_until_complete(
+        asyncio.wait_for(
+            CoroTestFunction(pyfuncitem.obj, testargs)(),
+            timeout=get_test_timeout(pyfuncitem),
+        )
     )
     return True
 
@@ -535,16 +650,18 @@ def io_loop():
     """
     Create new io loop for each test, and tear it down after.
     """
-    loop = salt.ext.tornado.ioloop.IOLoop()
-    loop.make_current()
+    asyncio_loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(asyncio_loop)
+    loop = tornado.ioloop.IOLoop.current()
     try:
         yield loop
     finally:
-        loop.clear_current()
-        loop.close(all_fds=True)
+        loop.close(all_fds=True)  # Also closes asyncio_loop
+        asyncio.set_event_loop(None)
 
 
 # <---- Async Test Fixtures ------------------------------------------------------------------------------------------
+
 
 # ----- Helpers ----------------------------------------------------------------------------------------------------->
 @pytest.helpers.proxy.register
@@ -552,6 +669,8 @@ def delta_proxy_minion_ids():
     return [
         "dummy_proxy_one",
         "dummy_proxy_two",
+        "dummy_proxy_three",
+        "dummy_proxy_four",
     ]
 
 

@@ -6,6 +6,7 @@ import pprint
 import time
 
 import pytest
+
 import salt.utils.platform
 from tests.support.case import ModuleCase, ShellCase
 from tests.support.runtests import RUNTIME_VARS
@@ -45,13 +46,13 @@ class MineTest(ModuleCase, ShellCase):
 
         # sub_minion should be able to view test.arg data
         sub_min_ret = self.run_call(
-            "mine.get {} test.arg".format(self.tgt),
+            f"mine.get {self.tgt} test.arg",
             config_dir=RUNTIME_VARS.TMP_SUB_MINION_CONF_DIR,
         )
         assert "            - isn't" in sub_min_ret
 
         # minion should not be able to view test.arg data
-        min_ret = self.run_call("mine.get {} test.arg".format(self.tgt))
+        min_ret = self.run_call(f"mine.get {self.tgt} test.arg")
         assert "            - isn't" not in min_ret
 
     @pytest.mark.slow_test
@@ -67,9 +68,9 @@ class MineTest(ModuleCase, ShellCase):
                 allow_tgt="sub_minion",
                 minion_tgt=minion,
             )
-        min_ret = self.run_call("mine.get {} {}".format(self.tgt, mine_name))
+        min_ret = self.run_call(f"mine.get {self.tgt} {mine_name}")
         sub_ret = self.run_call(
-            "mine.get {} {}".format(self.tgt, mine_name),
+            f"mine.get {self.tgt} {mine_name}",
             config_dir=RUNTIME_VARS.TMP_SUB_MINION_CONF_DIR,
         )
 
@@ -93,9 +94,9 @@ class MineTest(ModuleCase, ShellCase):
                 allow_tgt_type="compound",
                 minion_tgt=minion,
             )
-        min_ret = self.run_call("mine.get {} {}".format(self.tgt, mine_name))
+        min_ret = self.run_call(f"mine.get {self.tgt} {mine_name}")
         sub_ret = self.run_call(
-            "mine.get {} {}".format(self.tgt, mine_name),
+            f"mine.get {self.tgt} {mine_name}",
             config_dir=RUNTIME_VARS.TMP_SUB_MINION_CONF_DIR,
         )
 
@@ -118,9 +119,9 @@ class MineTest(ModuleCase, ShellCase):
                 allow_tgt="doesnotexist",
                 minion_tgt=minion,
             )
-        min_ret = self.run_call("mine.get {} {}".format(self.tgt, mine_name))
+        min_ret = self.run_call(f"mine.get {self.tgt} {mine_name}")
         sub_ret = self.run_call(
-            "mine.get {} {}".format(self.tgt, mine_name),
+            f"mine.get {self.tgt} {mine_name}",
             config_dir=RUNTIME_VARS.TMP_SUB_MINION_CONF_DIR,
         )
 

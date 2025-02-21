@@ -4,7 +4,9 @@
 
     log beacon test cases
 """
+
 import pytest
+
 import salt.beacons.log_beacon as log_beacon
 from tests.support.mock import mock_open, patch
 

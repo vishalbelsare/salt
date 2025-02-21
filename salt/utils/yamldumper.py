@@ -3,22 +3,23 @@
     ~~~~~~~~~~~~~~~~~~~~~
 
 """
+
 # pylint: disable=W0232
 #         class has no __init__ method
 
 
 import collections
 
-import salt.utils.context
 import yaml  # pylint: disable=blacklisted-import
-from salt.utils.odict import OrderedDict
+
+import salt.utils.context
+from salt.utils.odict import HashableOrderedDict, OrderedDict
 
 try:
     from yaml import CDumper as Dumper
     from yaml import CSafeDumper as SafeDumper
 except ImportError:
-    from yaml import Dumper
-    from yaml import SafeDumper
+    from yaml import Dumper, SafeDumper
 
 
 __all__ = [
@@ -70,7 +71,9 @@ def represent_undefined(dumper, data):
 
 
 OrderedDumper.add_representer(OrderedDict, represent_ordereddict)
+OrderedDumper.add_representer(HashableOrderedDict, represent_ordereddict)
 SafeOrderedDumper.add_representer(OrderedDict, represent_ordereddict)
+SafeOrderedDumper.add_representer(HashableOrderedDict, represent_ordereddict)
 SafeOrderedDumper.add_representer(None, represent_undefined)
 
 OrderedDumper.add_representer(

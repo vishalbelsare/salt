@@ -3,11 +3,12 @@
 """
 
 import pytest
+
 import salt.utils.platform
 
 pytestmark = [
     pytest.mark.windows_whitelisted,
-    #    pytest.mark.slow_test,
+    pytest.mark.core_test,
 ]
 
 
@@ -23,7 +24,7 @@ def test_batch_run(salt_cli, run_timeout, salt_sub_minion):
     """
     Tests executing a simple batch command to help catch regressions
     """
-    ret = "Executing run on [{}]".format(repr(salt_sub_minion.id))
+    ret = f"Executing run on [{repr(salt_sub_minion.id)}]"
     cmd = salt_cli.run(
         "test.echo",
         "batch testing",
@@ -52,22 +53,19 @@ def test_batch_run_number(salt_cli, salt_minion, salt_sub_minion, run_timeout):
 
 
 def test_batch_run_grains_targeting(
-    salt_cli, salt_minion, salt_sub_minion, run_timeout
+    grains, salt_cli, salt_minion, salt_sub_minion, run_timeout
 ):
     """
     Tests executing a batch command using a percentage divisor as well as grains
     targeting.
     """
-    sub_min_ret = "Executing run on [{}]".format(repr(salt_sub_minion.id))
-    min_ret = "Executing run on [{}]".format(repr(salt_minion.id))
-    os_grain = salt_cli.run("grains.get", "os", minion_tgt=salt_minion.id).json
-
-    os_grain = os_grain.strip()
+    sub_min_ret = f"Executing run on [{repr(salt_sub_minion.id)}]"
+    min_ret = f"Executing run on [{repr(salt_minion.id)}]"
     cmd = salt_cli.run(
         "-C",
         "-b 25%",
         "test.ping",
-        minion_tgt="G@os:{} and not localhost".format(os_grain.replace(" ", "?")),
+        minion_tgt="G@os:{} and not localhost".format(grains["os"].replace(" ", "?")),
         _timeout=run_timeout,
     )
     assert sub_min_ret in cmd.stdout
@@ -86,7 +84,7 @@ def test_batch_exit_code(salt_cli, salt_minion, salt_sub_minion, run_timeout):
         minion_tgt="*minion*",
         _timeout=run_timeout,
     )
-    assert cmd.exitcode == 2
+    assert cmd.returncode == 2
 
 
 # Test for failhard + batch. The best possible solution here was to do something like that:
@@ -143,7 +141,9 @@ def test_batch_state_stopping_after_error(
 
     # Executing salt with batch: 1 and with failhard. It should stop after the first error.
     cmd = salt_cli.run(
-        "state.single" "test.fail_without_changes" "name=test_me",
+        "state.single",
+        "test.fail_without_changes",
+        "name=test_me",
         "-b 1",
         "--out=yaml",
         "--failhard",
@@ -180,7 +180,11 @@ def test_batch_retcode(salt_cli, salt_minion, salt_sub_minion, run_timeout):
         _timeout=run_timeout,
     )
 
-    assert cmd.exitcode == 23
+    assert cmd.returncode == 23
+    # TODO: Certain platforms will have a warning related to jinja. But
+    # that's an issue with dependency versions that may be due to the versions
+    # installed on the test images. When those issues are sorted, this can
+    # simply `not cmd.stderr`.
     assert not cmd.stderr
     assert "true" in cmd.stdout
 
@@ -199,7 +203,11 @@ def test_multiple_modules_in_batch(salt_cli, salt_minion, salt_sub_minion, run_t
         _timeout=run_timeout,
     )
 
-    assert cmd.exitcode == 23
+    assert cmd.returncode == 23
+    # TODO: Certain platforms will have a warning related to setproctitle. But
+    # that's an issue with dependency versions that may be due to the versions
+    # installed on the test images. When those issues are sorted, this can
+    # simply `not cmd.stderr`.
     assert not cmd.stderr
 
 

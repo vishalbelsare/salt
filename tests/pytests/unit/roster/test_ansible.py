@@ -1,6 +1,7 @@
 import shutil
 
 import pytest
+
 import salt.loader
 import salt.roster.ansible as ansible
 from tests.support.mock import patch
@@ -18,7 +19,7 @@ def roster_opts():
 @pytest.fixture
 def configure_loader_modules(temp_salt_master, roster_opts):
     opts = temp_salt_master.config.copy()
-    utils = salt.loader.utils(opts, whitelist=["json", "stringutils"])
+    utils = salt.loader.utils(opts, whitelist=["json", "stringutils", "ansible"])
     runner = salt.loader.runner(opts, utils=utils, whitelist=["salt"])
     return {
         ansible: {"__utils__": utils, "__opts__": roster_opts, "__runner__": runner}
@@ -57,6 +58,28 @@ def expected_targets_return():
                 "self_destruct_countdown": 60,
                 "some_server": "foo.southeast.example.com",
             },
+        },
+    }
+
+
+@pytest.fixture
+def expected_docs_targets_return():
+    return {
+        "home": {
+            "passwd": "password",
+            "sudo": "password",
+            "host": "12.34.56.78",
+            "port": 23,
+            "user": "gtmanfred",
+            "minion_opts": {"http_port": 80},
+        },
+        "salt.gtmanfred.com": {
+            "passwd": "password",
+            "sudo": "password",
+            "host": "127.0.0.1",
+            "port": 22,
+            "user": "gtmanfred",
+            "minion_opts": {"http_port": 80},
         },
     }
 
@@ -135,6 +158,59 @@ def roster_dir(tmp_path_factory):
       children:
         southeast:
     """
+    docs_ini_contents = """
+    [servers]
+    salt.gtmanfred.com ansible_ssh_user=gtmanfred ansible_ssh_host=127.0.0.1 ansible_ssh_port=22 ansible_ssh_pass='password' ansible_sudo_pass='password'
+
+    [desktop]
+    home ansible_ssh_user=gtmanfred ansible_ssh_host=12.34.56.78 ansible_ssh_port=23 ansible_ssh_pass='password' ansible_sudo_pass='password'
+
+    [computers:children]
+    desktop
+    servers
+
+    [computers:vars]
+    http_port=80
+    """
+    docs_script_contents = """
+    #!/bin/bash
+    echo '{
+        "servers": [
+            "salt.gtmanfred.com"
+        ],
+        "desktop": [
+            "home"
+        ],
+        "computers": {
+            "hosts": [],
+            "children": [
+                "desktop",
+                "servers"
+            ],
+            "vars": {
+                "http_port": 80
+            }
+        },
+        "_meta": {
+            "hostvars": {
+                "salt.gtmanfred.com": {
+                    "ansible_ssh_user": "gtmanfred",
+                    "ansible_ssh_host": "127.0.0.1",
+                    "ansible_sudo_pass": "password",
+                    "ansible_ssh_pass": "password",
+                    "ansible_ssh_port": 22
+                },
+                "home": {
+                    "ansible_ssh_user": "gtmanfred",
+                    "ansible_ssh_host": "12.34.56.78",
+                    "ansible_sudo_pass": "password",
+                    "ansible_ssh_pass": "password",
+                    "ansible_ssh_port": 23
+                }
+            }
+        }
+    }'
+    """
     with pytest.helpers.temp_file(
         "roster.py", roster_py_contents, directory=dpath
     ) as py_roster:
@@ -143,11 +219,17 @@ def roster_dir(tmp_path_factory):
             "roster.ini", roster_ini_contents, directory=dpath
         ), pytest.helpers.temp_file(
             "roster.yml", roster_yaml_contents, directory=dpath
+        ), pytest.helpers.temp_file(
+            "roster-docs.ini", docs_ini_contents, directory=dpath
         ):
-            try:
-                yield dpath
-            finally:
-                shutil.rmtree(str(dpath), ignore_errors=True)
+            with pytest.helpers.temp_file(
+                "roster-docs.sh", docs_script_contents, directory=dpath
+            ) as script_roster:
+                script_roster.chmod(0o755)
+                try:
+                    yield dpath
+                finally:
+                    shutil.rmtree(str(dpath), ignore_errors=True)
 
 
 @pytest.mark.parametrize(
@@ -178,3 +260,17 @@ def test_script(roster_opts, roster_dir, expected_targets_return):
     with patch.dict(ansible.__opts__, roster_opts):
         ret = ansible.targets("*")
         assert ret == expected_targets_return
+
+
+def test_docs_ini(roster_opts, roster_dir, expected_docs_targets_return):
+    roster_opts["roster_file"] = str(roster_dir / "roster-docs.ini")
+    with patch.dict(ansible.__opts__, roster_opts):
+        ret = ansible.targets("*")
+        assert ret == expected_docs_targets_return
+
+
+def test_docs_script(roster_opts, roster_dir, expected_docs_targets_return):
+    roster_opts["roster_file"] = str(roster_dir / "roster-docs.sh")
+    with patch.dict(ansible.__opts__, roster_opts):
+        ret = ansible.targets("*")
+        assert ret == expected_docs_targets_return

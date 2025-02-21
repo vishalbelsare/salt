@@ -98,6 +98,7 @@
 
     Document is defacto an aggregate mapping.
 """
+
 # pylint: disable=invalid-name,no-member,missing-docstring,no-self-use
 # pylint: disable=too-few-public-methods,too-many-public-methods
 
@@ -107,12 +108,13 @@ import datetime
 import logging
 
 import yaml
-from salt.serializers import DeserializationError, SerializationError
-from salt.utils.aggregation import Map, Sequence, aggregate
-from salt.utils.odict import OrderedDict
 from yaml.constructor import ConstructorError
 from yaml.nodes import MappingNode
 from yaml.scanner import ScannerError
+
+from salt.serializers import DeserializationError, SerializationError
+from salt.utils.aggregation import Map, Sequence, aggregate
+from salt.utils.odict import OrderedDict
 
 __all__ = ["deserialize", "serialize", "available"]
 
@@ -207,7 +209,7 @@ class Loader(BaseLoader):  # pylint: disable=W0232
             raise ConstructorError(
                 None,
                 None,
-                "expected a mapping node, but found {}".format(node.id),
+                f"expected a mapping node, but found {node.id}",
                 node.start_mark,
             )
 

@@ -17,6 +17,12 @@ Etcd installed. This can be easily installed with pip:
 
     pip install python-etcd
 
+.. note::
+
+    While etcd API v3 has been implemented in other places within salt,
+    etcd_cache does not support it at this time due to fundamental differences in
+    how the versions are designed and v3 not being compatible with the cache API.
+
 Optionally, depending on the Etcd agent configuration, the following values
 could be set in the master config. These are the defaults:
 
@@ -135,16 +141,14 @@ def store(bank, key, data):
     Store a key value.
     """
     _init_client()
-    etcd_key = "{}/{}/{}".format(path_prefix, bank, key)
-    etcd_tstamp_key = "{}/{}/{}".format(path_prefix, bank, key + _tstamp_suffix)
+    etcd_key = f"{path_prefix}/{bank}/{key}"
+    etcd_tstamp_key = f"{path_prefix}/{bank}/{key + _tstamp_suffix}"
     try:
         value = salt.payload.dumps(data)
         client.write(etcd_key, base64.b64encode(value))
         client.write(etcd_tstamp_key, int(time.time()))
     except Exception as exc:  # pylint: disable=broad-except
-        raise SaltCacheError(
-            "There was an error writing the key, {}: {}".format(etcd_key, exc)
-        )
+        raise SaltCacheError(f"There was an error writing the key, {etcd_key}: {exc}")
 
 
 def fetch(bank, key):
@@ -152,16 +156,14 @@ def fetch(bank, key):
     Fetch a key value.
     """
     _init_client()
-    etcd_key = "{}/{}/{}".format(path_prefix, bank, key)
+    etcd_key = f"{path_prefix}/{bank}/{key}"
     try:
         value = client.read(etcd_key).value
         return salt.payload.loads(base64.b64decode(value))
     except etcd.EtcdKeyNotFound:
         return {}
     except Exception as exc:  # pylint: disable=broad-except
-        raise SaltCacheError(
-            "There was an error reading the key, {}: {}".format(etcd_key, exc)
-        )
+        raise SaltCacheError(f"There was an error reading the key, {etcd_key}: {exc}")
 
 
 def flush(bank, key=None):
@@ -170,11 +172,11 @@ def flush(bank, key=None):
     """
     _init_client()
     if key is None:
-        etcd_key = "{}/{}".format(path_prefix, bank)
+        etcd_key = f"{path_prefix}/{bank}"
         tstamp_key = None
     else:
-        etcd_key = "{}/{}/{}".format(path_prefix, bank, key)
-        tstamp_key = "{}/{}/{}".format(path_prefix, bank, key + _tstamp_suffix)
+        etcd_key = f"{path_prefix}/{bank}/{key}"
+        tstamp_key = f"{path_prefix}/{bank}/{key + _tstamp_suffix}"
     try:
         client.read(etcd_key)
     except etcd.EtcdKeyNotFound:
@@ -184,9 +186,7 @@ def flush(bank, key=None):
             client.delete(tstamp_key)
         client.delete(etcd_key, recursive=True)
     except Exception as exc:  # pylint: disable=broad-except
-        raise SaltCacheError(
-            "There was an error removing the key, {}: {}".format(etcd_key, exc)
-        )
+        raise SaltCacheError(f"There was an error removing the key, {etcd_key}: {exc}")
 
 
 def _walk(r):
@@ -212,14 +212,14 @@ def ls(bank):
     bank.
     """
     _init_client()
-    path = "{}/{}".format(path_prefix, bank)
+    path = f"{path_prefix}/{bank}"
     try:
         return _walk(client.read(path))
     except etcd.EtcdKeyNotFound:
         return []
     except Exception as exc:  # pylint: disable=broad-except
         raise SaltCacheError(
-            'There was an error getting the key "{}": {}'.format(bank, exc)
+            f'There was an error getting the key "{bank}": {exc}'
         ) from exc
 
 
@@ -236,9 +236,7 @@ def contains(bank, key):
     except etcd.EtcdKeyNotFound:
         return False
     except Exception as exc:  # pylint: disable=broad-except
-        raise SaltCacheError(
-            "There was an error getting the key, {}: {}".format(etcd_key, exc)
-        )
+        raise SaltCacheError(f"There was an error getting the key, {etcd_key}: {exc}")
 
 
 def updated(bank, key):
@@ -246,13 +244,11 @@ def updated(bank, key):
     Return Unix Epoch based timestamp of when the bank/key was updated.
     """
     _init_client()
-    tstamp_key = "{}/{}/{}".format(path_prefix, bank, key + _tstamp_suffix)
+    tstamp_key = f"{path_prefix}/{bank}/{key + _tstamp_suffix}"
     try:
         value = client.read(tstamp_key).value
         return int(value)
     except etcd.EtcdKeyNotFound:
         return None
     except Exception as exc:  # pylint: disable=broad-except
-        raise SaltCacheError(
-            "There was an error reading the key, {}: {}".format(tstamp_key, exc)
-        )
+        raise SaltCacheError(f"There was an error reading the key, {tstamp_key}: {exc}")

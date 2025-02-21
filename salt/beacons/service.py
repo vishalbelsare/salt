@@ -1,6 +1,7 @@
 """
 Send events covering service status
 """
+
 import logging
 import os
 import time
@@ -143,10 +144,10 @@ def beacon(config):
         if "onchangeonly" in service_config and service_config["onchangeonly"] is True:
             if service not in LAST_STATUS:
                 LAST_STATUS[service] = ret_dict[service]
+                if not service_config["emitatstartup"]:
+                    continue
                 if service_config["delay"] > 0:
                     LAST_STATUS[service]["time"] = currtime
-                elif not service_config["emitatstartup"]:
-                    continue
                 else:
                     ret.append(ret_dict)
 

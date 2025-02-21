@@ -6,6 +6,7 @@ import copy
 import logging
 
 import pytest
+
 import salt.utils.platform
 from salt import client
 from salt.exceptions import (
@@ -19,14 +20,7 @@ from tests.support.mock import MagicMock, patch
 log = logging.getLogger(__name__)
 
 
-@pytest.fixture
-def master_config():
-    opts = salt.config.DEFAULT_MASTER_OPTS.copy()
-    opts["__role"] = "master"
-    return opts
-
-
-def test_job_result_return_success(master_config):
+def test_job_result_return_success(master_opts):
     """
     Should return the `expected_return`, since there is a job with the right jid.
     """
@@ -34,7 +28,7 @@ def test_job_result_return_success(master_config):
     jid = "0815"
     raw_return = {"id": "fake-id", "jid": jid, "data": "", "return": "fake-return"}
     expected_return = {"fake-id": {"ret": "fake-return"}}
-    with client.LocalClient(mopts=master_config) as local_client:
+    with client.LocalClient(mopts=master_opts) as local_client:
         local_client.event.get_event = MagicMock(return_value=raw_return)
         local_client.returners = MagicMock()
         ret = local_client.get_event_iter_returns(jid, minions)
@@ -42,7 +36,7 @@ def test_job_result_return_success(master_config):
         assert val == expected_return
 
 
-def test_job_result_return_failure(master_config):
+def test_job_result_return_failure(master_opts):
     """
     We are _not_ getting a job return, because the jid is different. Instead we should
     get a StopIteration exception.
@@ -55,7 +49,7 @@ def test_job_result_return_failure(master_config):
         "data": "",
         "return": "fake-return",
     }
-    with client.LocalClient(mopts=master_config) as local_client:
+    with client.LocalClient(mopts=master_opts) as local_client:
         local_client.event.get_event = MagicMock()
         local_client.event.get_event.side_effect = [raw_return, None]
         local_client.returners = MagicMock()
@@ -64,8 +58,8 @@ def test_job_result_return_failure(master_config):
             next(ret)
 
 
-def test_create_local_client(master_config):
-    with client.LocalClient(mopts=master_config) as local_client:
+def test_create_local_client(master_opts):
+    with client.LocalClient(mopts=master_opts) as local_client:
         assert isinstance(
             local_client, client.LocalClient
         ), "LocalClient did not create a LocalClient instance"
@@ -253,3 +247,44 @@ def test_pub_win32(salt_master_factory):
                 "test.ping",
                 tgt_type="nodegroup",
             )
+
+
+def test_invalid_event_tag_65727(master_opts, caplog):
+    """
+    LocalClient.get_iter_returns handles non return event tags.
+    """
+    minions = ()
+    jid = "0815"
+    raw_return = {"id": "fake-id", "jid": jid, "data": "", "return": "fake-return"}
+    expected_return = {"fake-id": {"ret": "fake-return"}}
+
+    def returns_iter():
+        # Invalid return
+        yield {
+            "tag": "salt/job/0815/return/",
+            "data": {
+                "return": "fpp",
+                "id": "fake-id",
+            },
+        }
+        # Valid return
+        yield {
+            "tag": "salt/job/0815/ret/",
+            "data": {
+                "return": "fpp",
+                "id": "fake-id",
+            },
+        }
+
+    with client.LocalClient(mopts=master_opts) as local_client:
+        # Returning a truthy value, the real method returns a salt returner but it's not used.
+        local_client.returns_for_job = MagicMock(return_value=True)
+        # Mock iter returns, we'll return one invalid and one valid return event.
+        local_client.get_returns_no_block = MagicMock(return_value=returns_iter())
+        with caplog.at_level(logging.DEBUG):
+            # Validate we don't choke on the bad return, the method returns a
+            # valid respons and the invalid event tag is getting logged to
+            # debug.
+            for ret in local_client.get_iter_returns(jid, {"fake-id"}):
+                assert ret == {"fake-id": {"ret": "fpp"}}
+            assert "Skipping non return event: salt/job/0815/return/" in caplog.text

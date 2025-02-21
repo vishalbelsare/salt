@@ -5,8 +5,10 @@ import subprocess
 import time
 
 import pytest
+from pytestshellutils.exceptions import FactoryTimeout
+
 import salt.utils.platform
-from saltfactories.exceptions import FactoryTimeout
+from tests.conftest import FIPS_TESTRUN
 
 log = logging.getLogger(__name__)
 
@@ -19,13 +21,22 @@ def salt_mm_master_1(request, salt_factories):
     }
     config_overrides = {
         "interface": "127.0.0.1",
+        "fips_mode": FIPS_TESTRUN,
+        "publish_signing_algorithm": (
+            "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1"
+        ),
+        "log_granular_levels": {
+            "salt": "info",
+            "salt.transport": "debug",
+            "salt.channel": "debug",
+            "salt.utils.event": "debug",
+        },
     }
-
     factory = salt_factories.salt_master_daemon(
         "mm-master-1",
         defaults=config_defaults,
         overrides=config_overrides,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
     with factory.started(start_timeout=120):
         yield factory
@@ -47,6 +58,16 @@ def salt_mm_master_2(salt_factories, salt_mm_master_1):
     }
     config_overrides = {
         "interface": "127.0.0.2",
+        "fips_mode": FIPS_TESTRUN,
+        "publish_signing_algorithm": (
+            "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1"
+        ),
+        "log_granular_levels": {
+            "salt": "info",
+            "salt.transport": "debug",
+            "salt.channel": "debug",
+            "salt.utils.event": "debug",
+        },
     }
 
     # Use the same ports for both masters, they are binding to different interfaces
@@ -59,7 +80,7 @@ def salt_mm_master_2(salt_factories, salt_mm_master_1):
         "mm-master-2",
         defaults=config_defaults,
         overrides=config_overrides,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
 
     # The secondary salt master depends on the primarily salt master fixture
@@ -90,16 +111,26 @@ def salt_mm_minion_1(salt_mm_master_1, salt_mm_master_2):
     mm_master_2_addr = salt_mm_master_2.config["interface"]
     config_overrides = {
         "master": [
-            "{}:{}".format(mm_master_1_addr, mm_master_1_port),
-            "{}:{}".format(mm_master_2_addr, mm_master_2_port),
+            f"{mm_master_1_addr}:{mm_master_1_port}",
+            f"{mm_master_2_addr}:{mm_master_2_port}",
         ],
         "test.foo": "baz",
+        "fips_mode": FIPS_TESTRUN,
+        "encryption_algorithm": "OAEP-SHA224" if FIPS_TESTRUN else "OAEP-SHA1",
+        "signing_algorithm": "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1",
+        "log_granular_levels": {
+            "salt": "info",
+            "salt.minion": "debug",
+            "salt.transport": "debug",
+            "salt.channel": "debug",
+            "salt.utils.event": "debug",
+        },
     }
     factory = salt_mm_master_1.salt_minion_daemon(
         "mm-minion-1",
         defaults=config_defaults,
         overrides=config_overrides,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
     with factory.started(start_timeout=120):
         yield factory
@@ -117,16 +148,26 @@ def salt_mm_minion_2(salt_mm_master_1, salt_mm_master_2):
     mm_master_2_addr = salt_mm_master_2.config["interface"]
     config_overrides = {
         "master": [
-            "{}:{}".format(mm_master_1_addr, mm_master_1_port),
-            "{}:{}".format(mm_master_2_addr, mm_master_2_port),
+            f"{mm_master_1_addr}:{mm_master_1_port}",
+            f"{mm_master_2_addr}:{mm_master_2_port}",
         ],
         "test.foo": "baz",
+        "fips_mode": FIPS_TESTRUN,
+        "encryption_algorithm": "OAEP-SHA224" if FIPS_TESTRUN else "OAEP-SHA1",
+        "signing_algorithm": "PKCS1v15-SHA224" if FIPS_TESTRUN else "PKCS1v15-SHA1",
+        "log_granular_levels": {
+            "salt": "info",
+            "salt.minion": "debug",
+            "salt.transport": "debug",
+            "salt.channel": "debug",
+            "salt.utils.event": "debug",
+        },
     }
     factory = salt_mm_master_2.salt_minion_daemon(
         "mm-minion-2",
         defaults=config_defaults,
         overrides=config_overrides,
-        extra_cli_arguments_after_first_start_failure=["--log-level=debug"],
+        extra_cli_arguments_after_first_start_failure=["--log-level=info"],
     )
     with factory.started(start_timeout=120):
         yield factory
@@ -156,11 +197,12 @@ def run_salt_cmds():
                 for cli in list(clis_to_check[minion]):
                     try:
                         ret = cli.run(
-                            "--timeout={}".format(timeout),
+                            f"--timeout={timeout}",
                             "test.ping",
                             minion_tgt=minion,
+                            _timeout=2 * timeout,
                         )
-                        if ret.exitcode == 0 and ret.json is True:
+                        if ret.returncode == 0 and ret.data is True:
                             returned_minions.append((cli, minion_instances[minion]))
                             clis_to_check[minion].remove(cli)
                     except FactoryTimeout:

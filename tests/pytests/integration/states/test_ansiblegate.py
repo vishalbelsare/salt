@@ -7,11 +7,12 @@ import shutil
 import textwrap
 
 import pytest
+import yaml
+from pytestshellutils.exceptions import FactoryTimeout
+from saltfactories.utils.functional import StateResult
+
 import salt.utils.files
 import salt.utils.path
-import yaml
-from saltfactories.exceptions import FactoryTimeout
-from saltfactories.utils.functional import StateResult
 from tests.support.runtests import RUNTIME_VARS
 
 pytestmark = [
@@ -39,7 +40,7 @@ def ansible_inventory_directory(tmp_path_factory, grains):
 
 
 @pytest.fixture(scope="module", autouse=True)
-def ansible_inventory(ansible_inventory_directory, sshd_server):
+def ansible_inventory(ansible_inventory_directory, sshd_server, known_hosts_file):
     inventory = str(ansible_inventory_directory / "inventory")
     client_key = str(sshd_server.config_dir / "client_key")
     data = {
@@ -51,8 +52,7 @@ def ansible_inventory(ansible_inventory_directory, sshd_server):
                     "ansible_user": RUNTIME_VARS.RUNNING_TESTS_USER,
                     "ansible_ssh_private_key_file": client_key,
                     "ansible_ssh_extra_args": (
-                        "-o StrictHostKeyChecking=false "
-                        "-o UserKnownHostsFile=/dev/null "
+                        f"-o UserKnownHostsFile={known_hosts_file} "
                     ),
                 },
             },
@@ -64,6 +64,7 @@ def ansible_inventory(ansible_inventory_directory, sshd_server):
 
 
 @pytest.mark.requires_sshd_server
+@pytest.mark.timeout_unless_on_windows(240)
 def test_ansible_playbook(salt_call_cli, ansible_inventory, tmp_path):
     rundir = tmp_path / "rundir"
     rundir.mkdir(exist_ok=True, parents=True)
@@ -116,8 +117,8 @@ def test_ansible_playbook(salt_call_cli, ansible_inventory, tmp_path):
             except FactoryTimeout:
                 log.debug("%s took longer than %s seconds", name, timeout)
                 if timeout == timeouts[-1]:
-                    pytest.fail("Failed to run {}".format(name))
+                    pytest.fail(f"Failed to run {name}")
             else:
-                assert ret.exitcode == 0
-                assert StateResult(ret.json).result is True
+                assert ret.returncode == 0
+                assert StateResult(ret.data).result is True
                 break

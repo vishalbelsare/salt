@@ -1,0 +1,35 @@
+<%- if gh_environment != "ci" -%>
+<%- set pkg_types = ("onedir", "src") %>
+<%- else -%>
+<%- set pkg_types = ("onedir",) %>
+<%- endif -%>
+  <%- for backend in pkg_types %>
+  <%- set job_name = "build-pkgs-{}".format(backend) %>
+  <%- if backend == "src" %>
+    <%- do conclusion_needs.append(job_name) %>
+  <%- endif %>
+
+  <{ job_name }>:
+    name: Build Packages
+    if: ${{ fromJSON(needs.prepare-workflow.outputs.config)['jobs']['build-pkgs'] }}
+    needs:
+      - prepare-workflow
+      - build-salt-onedir
+    uses: ./.github/workflows/build-packages.yml
+    with:
+      salt-version: "${{ needs.prepare-workflow.outputs.salt-version }}"
+      cache-prefix: ${{ needs.prepare-workflow.outputs.cache-seed }}
+      relenv-version: "<{ relenv_version }>"
+      python-version: "<{ python_version }>"
+      source: "<{ backend }>"
+      matrix: ${{ toJSON(fromJSON(needs.prepare-workflow.outputs.config)['build-matrix']) }}
+      linux_arm_runner: ${{ fromJSON(needs.prepare-workflow.outputs.config)['linux_arm_runner'] }}
+    <%- if gh_environment != "ci" %>
+      environment: <{ gh_environment }>
+      sign-macos-packages: false
+      sign-windows-packages: <% if gh_environment == 'nightly' -%> false <%- else -%> ${{ inputs.sign-windows-packages }} <%- endif %>
+    secrets: inherit
+
+    <%- endif %>
+
+  <%- endfor %>
